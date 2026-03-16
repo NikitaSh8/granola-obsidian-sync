@@ -1,150 +1,113 @@
-# Granola Obsidian Sync
+# Granola Sync
 
-Automatically sync meeting notes and full transcripts from [Granola AI](https://granola.ai) to your [Obsidian](https://obsidian.md) vault as Markdown files.
+Скрипт для автоматической синхронизации транскриптов из [Granola](https://www.granola.so) в [Obsidian](https://obsidian.md).
 
-## Features
+## Что делает
 
-- Exports **both summary and full transcript** for each meeting
-- Supports transcripts from **macOS and iOS** (via Granola API)
-- Files named as `YYYY-MM-DD - Meeting Title.md` with YAML frontmatter
-- **Incremental sync** — only new or changed documents are updated
-- Deleted files are **not re-created** (respects manual cleanup)
-- Converts HTML and ProseMirror JSON summaries to clean Markdown
-- Formats transcripts with speaker labels and timestamps
+- Получает все встречи из Granola через API
+- Сохраняет summary + полный транскрипт в Markdown-файлы
+- Автоматически обновляет только изменившиеся файлы
+- Удаляет дубликаты от облачной синхронизации (iCloud/Dropbox)
+- Отслеживает переименования встреч в Granola
 
-## Architecture
+## Требования
 
-```
-┌─────────────┐     ┌──────────────────┐     ┌──────────────┐
-│  Granola AI  │────>│  granola_sync.py │────>│   Obsidian   │
-│   (cloud)    │ API │                  │ .md │    Vault     │
-└─────────────┘     │  ┌────────────┐  │     │  /Transcripts│
-                    │  │ Local cache│  │     └──────────────┘
-┌─────────────┐     │  │(cache-v3)  │  │
-│  supabase   │────>│  └────────────┘  │
-│  .json      │auth │                  │
-│ (credentials│     │  ┌────────────┐  │
-└─────────────┘     │  │ sync state │  │
-                    │  │  (.json)   │  │
-                    │  └────────────┘  │
-                    └──────────────────┘
-                      ▲           ▲
-                      │           │
-               ┌──────┘     ┌─────┘
-               │             │
-        ┌──────────┐  ┌───────────────┐
-        │ macOS App│  │  LaunchAgent  │
-        │ (manual) │  │(every 5 min)  │
-        └──────────┘  └───────────────┘
-```
+- macOS
+- Python 3.x
+- Установленная и авторизованная [Granola](https://www.granola.so)
+- Библиотека `requests`:
+  ```bash
+  pip3 install --user --break-system-packages requests
+  ```
 
-## Setup
-
-### 1. Prerequisites
-
-- macOS with Python 3
-- [Granola](https://granola.ai) installed and signed in
-- [Obsidian](https://obsidian.md) vault
-
-### 2. Install dependencies
+## Быстрая установка
 
 ```bash
-pip3 install requests
+./install.sh
 ```
 
-### 3. Clone and configure
+## Ручная установка
+
+### 1. Скопировать скрипт и конфигурацию
 
 ```bash
-git clone https://github.com/NikitaSh8/granola-obsidian-sync.git
-cd granola-obsidian-sync
-
-# Copy and edit config
-cp granola_sync_config.example.json granola_sync_config.json
+mkdir -p ~/.local/bin/granola-sync
+cp granola_sync.py ~/.local/bin/granola-sync/
+cp granola_sync_config.json ~/.local/bin/granola-sync/
 ```
 
-Edit `granola_sync_config.json` — set the path to your Obsidian vault:
+### 2. Настроить конфигурацию
+
+Отредактируйте `~/.local/bin/granola-sync/granola_sync_config.json`:
 
 ```json
 {
-  "obsidian_vault_path": "~/Documents/Obsidian Vault/Transcripts",
+  "obsidian_vault_path": "~/Documents/Obsidian Vault/YOUR_VAULT/06 Transcripts",
   "granola_credentials_path": "~/Library/Application Support/Granola/supabase.json",
   "granola_cache_path": "~/Library/Application Support/Granola/cache-v3.json"
 }
 ```
 
-### 4. Run manually
+### 3. Настроить автозапуск (каждые 5 минут)
 
 ```bash
-python3 granola_sync.py
+# Отредактируйте пути в plist файле под вашу систему
+cp com.granola.sync.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.granola.sync.plist
 ```
 
-## Auto-sync (LaunchAgent)
-
-To run sync automatically every 5 minutes:
-
-1. Copy and edit the LaunchAgent plist:
+### 4. Создать macOS приложение (опционально)
 
 ```bash
-cp macos-app/com.user.granola-sync.plist ~/Library/LaunchAgents/
+mkdir -p ~/Applications/Granola\ Sync.app/Contents/MacOS
+mkdir -p ~/Applications/Granola\ Sync.app/Contents/Resources
+cp Info.plist ~/Applications/Granola\ Sync.app/Contents/
+cp granola-sync.sh ~/Applications/Granola\ Sync.app/Contents/MacOS/granola-sync
+chmod +x ~/Applications/Granola\ Sync.app/Contents/MacOS/granola-sync
 ```
 
-2. Edit `~/Library/LaunchAgents/com.user.granola-sync.plist` — replace `/PATH/TO/` with actual paths to your script and logs.
+## Использование
 
-3. Load the agent:
+### Ручной запуск
+```bash
+python3 ~/.local/bin/granola-sync/granola_sync.py
+```
+
+### Через приложение
+Двойной клик на `Granola Sync.app` в `~/Applications/`
+
+### Автоматический запуск
+Настроен через launchd, запускается каждые 5 минут.
 
 ```bash
-launchctl load ~/Library/LaunchAgents/com.user.granola-sync.plist
+# Проверить статус
+launchctl list | grep granola
+
+# Остановить
+launchctl unload ~/Library/LaunchAgents/com.granola.sync.plist
+
+# Запустить
+launchctl load ~/Library/LaunchAgents/com.granola.sync.plist
 ```
 
-Logs are written to `~/Library/Logs/granola-sync.log`.
+## Логи
 
-## macOS App (manual sync)
+```bash
+# Основной лог
+tail -f ~/.local/bin/granola-sync/granola_sync.log
 
-A simple `.app` bundle is included in `macos-app/` for one-click sync from Finder or Spotlight.
-
-1. Copy `macos-app/Granola Sync.app` to `~/Applications/`
-2. Edit the script path inside `Granola Sync.app/Contents/MacOS/granola-sync`
-3. Make it executable: `chmod +x ~/Applications/Granola\ Sync.app/Contents/MacOS/granola-sync`
-
-## Output format
-
-Each synced meeting creates a Markdown file like:
-
-```markdown
----
-granola_id: abc-123-def
-created: 2026-01-15T10:00:00Z
-updated: 2026-01-15T11:00:00Z
-title: "Weekly Team Standup"
-tags:
-  - meeting
-  - granola
----
-
-## Summary
-
-Key points discussed...
-
----
-
-## Transcript
-
-**Speaker A** (10:00:15):
-> Hello everyone, let's get started...
-
-**Speaker B** (10:00:22):
-> Sure, I have an update on...
+# Лог ошибок
+tail -f ~/.local/bin/granola-sync/granola_sync_error.log
 ```
 
-## How it works
+## Формат файлов
 
-1. Reads Granola auth token from `supabase.json` (stored by the Granola desktop app)
-2. Fetches document list via `POST /v2/get-documents`
-3. For each document, extracts the summary (HTML or ProseMirror JSON -> Markdown)
-4. Fetches transcript: first checks local cache (`cache-v3.json`), then falls back to `POST /v1/get-document-transcript` API
-5. Writes combined summary + transcript as a Markdown file with YAML frontmatter
-6. Tracks content hashes in `.granola_sync_state.json` to avoid redundant writes
+Каждый транскрипт сохраняется как `YYYY-MM-DD - Название встречи.md` и содержит:
 
-## License
+- **Frontmatter** — granola_id, дата создания, теги
+- **Summary** — саммари от Granola
+- **Transcript** — полный транскрипт с временными метками
+
+## Лицензия
 
 MIT

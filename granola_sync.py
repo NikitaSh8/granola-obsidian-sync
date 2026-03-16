@@ -1,28 +1,28 @@
 #!/usr/bin/env python3
 """
 Granola to Obsidian Sync Script
-Automatically exports meeting transcripts from Granola AI to Obsidian vault.
-Includes both summary AND full transcript.
+Автоматически экспортирует транскрипты встреч из Granola в Obsidian.
+Включает саммари И полный транскрипт.
 
-Configuration: granola_sync_config.json (next to this script)
+Конфигурация: granola_sync_config.json (рядом со скриптом)
 """
 
 import json
 import os
 import re
 import hashlib
+import unicodedata
 from pathlib import Path
 from datetime import datetime
 import requests
 from html.parser import HTMLParser
 
-# Load configuration
+# Загрузка конфигурации
 SCRIPT_DIR = Path(__file__).parent
 CONFIG_PATH = SCRIPT_DIR / "granola_sync_config.json"
 
-
 def load_config() -> dict:
-    """Loads configuration from JSON file."""
+    """Загружает конфигурацию из JSON файла."""
     default_config = {
         "obsidian_vault_path": "~/Documents/Obsidian Vault/Transcripts",
         "granola_credentials_path": "~/Library/Application Support/Granola/supabase.json",
@@ -35,19 +35,18 @@ def load_config() -> dict:
                 user_config = json.load(f)
             default_config.update(user_config)
         except (json.JSONDecodeError, IOError) as e:
-            print(f"Error reading config {CONFIG_PATH}: {e}")
-            print("Using default settings.")
+            print(f"Ошибка чтения конфига {CONFIG_PATH}: {e}")
+            print("Используются настройки по умолчанию.")
 
     return default_config
 
-
 CONFIG = load_config()
 
-# Path configuration (from config file)
+# Конфигурация путей (из конфиг-файла)
 GRANOLA_CREDENTIALS_PATH = os.path.expanduser(CONFIG["granola_credentials_path"])
 GRANOLA_CACHE_PATH = os.path.expanduser(CONFIG["granola_cache_path"])
 OBSIDIAN_VAULT_PATH = os.path.expanduser(CONFIG["obsidian_vault_path"])
-MEETINGS_FOLDER = ""  # Save to root of specified folder
+MEETINGS_FOLDER = ""  # Сохраняем в корень указанной папки
 SYNC_STATE_FILE = os.path.join(OBSIDIAN_VAULT_PATH, ".granola_sync_state.json")
 
 # API
@@ -57,12 +56,12 @@ USER_AGENT = "Granola/5.354.0"
 
 
 class HTMLToMarkdown(HTMLParser):
-    """Simple HTML to Markdown converter."""
+    """Простой конвертер HTML в Markdown."""
 
     def __init__(self):
         super().__init__()
         self.result = []
-        self.list_stack = []
+        self.list_stack = []  # Stack for nested lists
         self.current_list_item = []
 
     def handle_starttag(self, tag, attrs):
@@ -125,19 +124,20 @@ class HTMLToMarkdown(HTMLParser):
 
     def get_markdown(self):
         text = ''.join(self.result)
+        # Cleanup multiple newlines
         text = re.sub(r'\n{3,}', '\n\n', text)
         return text.strip()
 
 
 def html_to_markdown(html: str) -> str:
-    """Converts HTML to Markdown."""
+    """Конвертирует HTML в Markdown."""
     parser = HTMLToMarkdown()
     parser.feed(html)
     return parser.get_markdown()
 
 
 def get_access_token() -> str:
-    """Reads access token from Granola credentials file."""
+    """Читает access token из файла credentials Granola."""
     with open(GRANOLA_CREDENTIALS_PATH, "r") as f:
         data = json.load(f)
 
@@ -146,7 +146,7 @@ def get_access_token() -> str:
 
 
 def load_granola_cache() -> dict:
-    """Loads local Granola cache with transcripts."""
+    """Загружает локальный кэш Granola с транскриптами."""
     try:
         with open(GRANOLA_CACHE_PATH, "r") as f:
             data = json.load(f)
@@ -157,7 +157,7 @@ def load_granola_cache() -> dict:
 
 
 def get_api_headers(token: str) -> dict:
-    """Returns headers for API requests."""
+    """Возвращает заголовки для API запросов."""
     return {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
@@ -168,7 +168,7 @@ def get_api_headers(token: str) -> dict:
 
 
 def fetch_documents(token: str, limit: int = 100, offset: int = 0) -> list:
-    """Fetches documents from Granola API."""
+    """Получает документы из Granola API."""
     headers = get_api_headers(token)
 
     payload = {
@@ -184,7 +184,7 @@ def fetch_documents(token: str, limit: int = 100, offset: int = 0) -> list:
 
 
 def fetch_transcript_from_api(token: str, doc_id: str) -> list:
-    """Fetches document transcript via API."""
+    """Получает транскрипт документа через API."""
     headers = get_api_headers(token)
 
     try:
@@ -203,7 +203,7 @@ def fetch_transcript_from_api(token: str, doc_id: str) -> list:
 
 
 def prosemirror_to_markdown(node: dict, depth: int = 0) -> str:
-    """Converts ProseMirror JSON to Markdown."""
+    """Конвертирует ProseMirror JSON в Markdown."""
     if not node:
         return ""
 
@@ -213,6 +213,7 @@ def prosemirror_to_markdown(node: dict, depth: int = 0) -> str:
     marks = node.get("marks", [])
     attrs = node.get("attrs", {})
 
+    # Обработка текста с форматированием
     if node_type == "text":
         result = text
         for mark in marks:
@@ -228,6 +229,7 @@ def prosemirror_to_markdown(node: dict, depth: int = 0) -> str:
                 result = f"[{result}]({href})"
         return result
 
+    # Обработка блочных элементов
     if node_type == "doc":
         return "".join(prosemirror_to_markdown(child, depth) for child in content)
 
@@ -250,12 +252,14 @@ def prosemirror_to_markdown(node: dict, depth: int = 0) -> str:
             item_content = "".join(
                 prosemirror_to_markdown(c, depth) for c in child.get("content", [])
             )
+            # Убираем лишние переносы и добавляем нумерацию
             item_text = item_content.strip().replace("\n\n", "\n")
             result += f"{i}. {item_text}\n"
         return result + "\n"
 
     if node_type == "listItem":
         item_content = "".join(prosemirror_to_markdown(child, depth + 1) for child in content)
+        # Убираем лишние переносы строк внутри элемента списка
         item_text = item_content.strip().replace("\n\n", "\n")
         indent = "  " * depth
         return f"{indent}- {item_text}\n"
@@ -276,20 +280,25 @@ def prosemirror_to_markdown(node: dict, depth: int = 0) -> str:
     if node_type == "hardBreak":
         return "\n"
 
+    # Для неизвестных типов просто обрабатываем содержимое
     return "".join(prosemirror_to_markdown(child, depth) for child in content)
 
 
 def extract_summary(doc: dict) -> str:
-    """Extracts summary from a Granola document."""
+    """Извлекает саммари из документа Granola."""
+    # Проверяем last_viewed_panel для саммари
     last_viewed_panel = doc.get("last_viewed_panel", {})
 
     if last_viewed_panel:
         content = last_viewed_panel.get("content")
         if content:
+            # Если HTML, конвертируем в Markdown
             if isinstance(content, str) and content.strip().startswith("<"):
                 return html_to_markdown(content)
+            # Если dict (ProseMirror), конвертируем
             if isinstance(content, dict):
                 return prosemirror_to_markdown(content)
+            # Если строка JSON
             if isinstance(content, str) and content.strip().startswith("{"):
                 try:
                     parsed = json.loads(content)
@@ -298,6 +307,7 @@ def extract_summary(doc: dict) -> str:
                     pass
             return content
 
+    # Альтернативные поля
     for field in ["notes", "content"]:
         if field in doc and doc[field]:
             value = doc[field]
@@ -318,7 +328,7 @@ def extract_summary(doc: dict) -> str:
 
 
 def format_transcript(segments: list) -> str:
-    """Formats transcript segments into readable Markdown."""
+    """Форматирует сегменты транскрипта в читаемый Markdown."""
     if not segments:
         return ""
 
@@ -333,6 +343,7 @@ def format_transcript(segments: list) -> str:
         source = segment.get("source", "unknown")
         timestamp = segment.get("start_timestamp", "")
 
+        # Форматируем время
         time_str = ""
         if timestamp:
             try:
@@ -341,21 +352,23 @@ def format_transcript(segments: list) -> str:
             except:
                 pass
 
-        # Check for speaker label in text (format "Speaker A: text")
+        # Проверяем, есть ли метка спикера в тексте (формат "Speaker A: текст")
         speaker_match = re.match(r'^(Speaker [A-Z]):\s*(.+)$', text, re.DOTALL)
         if speaker_match:
             speaker = speaker_match.group(1)
             text = speaker_match.group(2).strip()
         else:
+            # Определяем спикера по source
             if source == "microphone":
-                speaker = "You (microphone)"
+                speaker = "🎤 Вы"
             elif source == "system":
-                speaker = "System audio"
+                speaker = "🔊 Система"
             elif source == "assemblyai":
-                speaker = "Participant"
+                speaker = "👤 Участник"
             else:
-                speaker = source.title()
+                speaker = f"👤 {source.title()}"
 
+        # Добавляем разделитель при смене спикера
         if speaker != current_speaker:
             current_speaker = speaker
             if time_str:
@@ -369,19 +382,22 @@ def format_transcript(segments: list) -> str:
 
 
 def sanitize_filename(name) -> str:
-    """Sanitizes a string for use as a filename."""
+    """Очищает строку для использования в имени файла."""
     if not name or not isinstance(name, str):
-        name = "Untitled"
+        name = "Без названия"
+    # Заменяем недопустимые символы
     name = re.sub(r'[<>:"/\\|?*]', '-', name)
+    # Убираем лишние пробелы и тире
     name = re.sub(r'\s+', ' ', name).strip()
     name = re.sub(r'-+', '-', name)
+    # Ограничиваем длину
     if len(name) > 100:
         name = name[:100].rsplit(' ', 1)[0]
     return name
 
 
 def format_date(date_str: str) -> str:
-    """Formats a date from ISO format."""
+    """Форматирует дату из ISO формата."""
     try:
         dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
         return dt.strftime("%Y-%m-%d")
@@ -390,7 +406,7 @@ def format_date(date_str: str) -> str:
 
 
 def load_sync_state() -> dict:
-    """Loads sync state."""
+    """Загружает состояние синхронизации."""
     if os.path.exists(SYNC_STATE_FILE):
         with open(SYNC_STATE_FILE, "r") as f:
             return json.load(f)
@@ -398,47 +414,113 @@ def load_sync_state() -> dict:
 
 
 def save_sync_state(state: dict):
-    """Saves sync state."""
+    """Сохраняет состояние синхронизации."""
     with open(SYNC_STATE_FILE, "w") as f:
         json.dump(state, f, indent=2)
 
 
 def get_content_hash(content: str) -> str:
-    """Computes content hash for change detection."""
+    """Вычисляет хеш контента для отслеживания изменений."""
     return hashlib.md5(content.encode()).hexdigest()
 
 
-def sync_documents():
-    """Main sync function."""
-    print("Starting Granola -> Obsidian sync...")
+def build_granola_id_index(meetings_path: Path) -> dict:
+    """Строит индекс granola_id -> filepath по существующим файлам."""
+    index = {}
+    for md_file in meetings_path.glob("*.md"):
+        try:
+            with open(md_file, "r", encoding="utf-8") as f:
+                in_frontmatter = False
+                for i, line in enumerate(f):
+                    if i == 0 and line.strip() == "---":
+                        in_frontmatter = True
+                        continue
+                    if in_frontmatter and line.strip() == "---":
+                        break  # Конец frontmatter
+                    if in_frontmatter and line.startswith("granola_id:"):
+                        gid = line.split(":", 1)[1].strip()
+                        if gid:
+                            index.setdefault(gid, []).append(md_file)
+                        break
+                    if i > 15:
+                        break  # Слишком далеко, frontmatter не найден
+        except (IOError, UnicodeDecodeError):
+            pass
+    return index
 
+
+def cleanup_duplicates(meetings_path: Path):
+    """Удаляет дубликаты файлов (суффикс ' 2', ' 3' и т.д. от облачной синхронизации)."""
+    id_index = build_granola_id_index(meetings_path)
+    removed = 0
+    for gid, files in id_index.items():
+        if len(files) <= 1:
+            continue
+        # Сортируем: файл без суффикса " N" — основной
+        def has_dupe_suffix(f):
+            stem = f.stem
+            # Проверяем суффикс типа " 2", " 3"
+            return bool(re.search(r' \d+$', stem))
+
+        originals = [f for f in files if not has_dupe_suffix(f)]
+        dupes = [f for f in files if has_dupe_suffix(f)]
+
+        if not originals:
+            # Все с суффиксами — оставляем первый
+            originals = [sorted(dupes)[0]]
+            dupes = sorted(dupes)[1:]
+
+        for dupe in dupes:
+            print(f"Удаляю дубликат: {dupe.name}")
+            dupe.unlink()
+            removed += 1
+
+    if removed:
+        print(f"Удалено {removed} дубликатов\n")
+    return removed
+
+
+def sync_documents():
+    """Основная функция синхронизации."""
+    print("Начинаю синхронизацию Granola -> Obsidian...")
+
+    # Создаем папку для встреч если не существует
     meetings_path = Path(OBSIDIAN_VAULT_PATH) / MEETINGS_FOLDER
     meetings_path.mkdir(parents=True, exist_ok=True)
 
+    # Удаляем дубликаты от облачной синхронизации
+    cleanup_duplicates(meetings_path)
+
+    # Получаем токен и документы
     try:
         token = get_access_token()
     except FileNotFoundError:
-        print(f"Error: credentials file not found: {GRANOLA_CREDENTIALS_PATH}")
-        print("Make sure Granola is installed and you are signed in.")
+        print(f"Ошибка: файл credentials не найден: {GRANOLA_CREDENTIALS_PATH}")
+        print("Убедитесь, что Granola установлена и вы вошли в аккаунт.")
         return
     except (json.JSONDecodeError, KeyError) as e:
-        print(f"Error reading credentials: {e}")
+        print(f"Ошибка чтения credentials: {e}")
         return
 
     try:
         documents = fetch_documents(token)
     except requests.exceptions.RequestException as e:
-        print(f"Error fetching from Granola API: {e}")
+        print(f"Ошибка при запросе к API Granola: {e}")
         return
 
-    print(f"Found {len(documents)} documents in Granola")
+    print(f"Найдено {len(documents)} документов в Granola")
 
+    # Загружаем локальный кэш с транскриптами
     cache = load_granola_cache()
     cached_transcripts = cache.get("transcripts", {})
-    print(f"Found {len(cached_transcripts)} transcripts in local cache")
+    print(f"Найдено {len(cached_transcripts)} транскриптов в локальном кэше")
 
+    # Загружаем состояние синхронизации
     state = load_sync_state()
     synced_ids = state.get("synced_ids", {})
+
+    # Строим индекс granola_id -> файлы для поиска переименованных
+    id_index = build_granola_id_index(meetings_path)
 
     new_count = 0
     updated_count = 0
@@ -446,28 +528,41 @@ def sync_documents():
 
     for doc in documents:
         doc_id = doc.get("id")
-        title = doc.get("title") or "Untitled"
+        title = doc.get("title") or "Без названия"
         created_at = doc.get("created_at", "")
         updated_at = doc.get("updated_at", created_at)
 
-        # Format filename: YYYY-MM-DD - Title.md
+        # Форматируем имя файла: YYYY-MM-DD - Название.md
         date_str = format_date(created_at)
         safe_title = sanitize_filename(title)
         filename = f"{date_str} - {safe_title}.md"
         filepath = meetings_path / filename
 
+        # Если файл с таким granola_id уже существует под другим именем — удаляем старый
+        if doc_id in id_index:
+            for old_file in id_index[doc_id]:
+                # Сравниваем имена с учётом Unicode нормализации (macOS использует NFD)
+                old_name_normalized = unicodedata.normalize("NFC", old_file.name)
+                new_name_normalized = unicodedata.normalize("NFC", filename)
+                if old_name_normalized != new_name_normalized and old_file.exists():
+                    print(f"Переименовано в Granola: {old_file.name} -> {filename}")
+                    old_file.unlink()
+
+        # Извлекаем саммари
         summary = extract_summary(doc)
 
-        # Try to get transcript: cache first, then API fallback
+        # Пробуем получить транскрипт: сначала из кэша, потом через API
         transcript_segments = cached_transcripts.get(doc_id, [])
 
         if not transcript_segments:
+            # Если в кэше нет, пробуем получить через API
             transcript_segments = fetch_transcript_from_api(token, doc_id)
             if transcript_segments:
                 api_transcript_count += 1
 
         transcript_text = format_transcript(transcript_segments)
 
+        # Создаем frontmatter
         escaped_title = title.replace('"', '\\"')
         frontmatter = f"""---
 granola_id: {doc_id}
@@ -481,6 +576,7 @@ tags:
 
 """
 
+        # Собираем полный контент: саммари + транскрипт
         content_parts = [frontmatter]
 
         if summary:
@@ -496,29 +592,43 @@ tags:
         full_content = "".join(content_parts)
         content_hash = get_content_hash(full_content)
 
+        # Проверяем, нужно ли обновлять
         if doc_id in synced_ids:
             if synced_ids[doc_id] == content_hash:
-                continue
+                continue  # Контент не изменился
             updated_count += 1
-            print(f"Updated: {filename}")
+            print(f"Обновляю: {filename}")
         else:
             new_count += 1
-            print(f"New: {filename}")
+            print(f"Новый: {filename}")
 
-        with open(filepath, "w", encoding="utf-8") as f:
-            f.write(full_content)
+        # Записываем файл (с retry при блокировке iCloud/Obsidian)
+        import time
+        for attempt in range(3):
+            try:
+                with open(filepath, "w", encoding="utf-8") as f:
+                    f.write(full_content)
+                break
+            except OSError as e:
+                if attempt < 2:
+                    time.sleep(1)
+                else:
+                    print(f"  ⚠️ Не удалось записать {filename}: {e}")
+                    continue
 
+        # Обновляем состояние
         synced_ids[doc_id] = content_hash
 
+    # Сохраняем состояние
     state["synced_ids"] = synced_ids
     state["last_sync"] = datetime.now().isoformat()
     save_sync_state(state)
 
-    print(f"\nSync complete!")
-    print(f"  New: {new_count}")
-    print(f"  Updated: {updated_count}")
-    print(f"  Transcripts via API: {api_transcript_count}")
-    print(f"  Total in Granola: {len(documents)}")
+    print(f"\nСинхронизация завершена!")
+    print(f"  Новых: {new_count}")
+    print(f"  Обновлено: {updated_count}")
+    print(f"  Транскриптов через API: {api_transcript_count}")
+    print(f"  Всего в Granola: {len(documents)}")
 
 
 if __name__ == "__main__":

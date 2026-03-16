@@ -5,20 +5,18 @@
     <key>CFBundleExecutable</key>
     <string>granola-sync</string>
     <key>CFBundleIdentifier</key>
-    <string>com.user.granola-sync</string>
+    <string>com.granola.sync</string>
     <key>CFBundleName</key>
     <string>Granola Sync</string>
-    <key>CFBundleDisplayName</key>
-    <string>Granola Sync</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
     <key>CFBundleVersion</key>
     <string>1.0</string>
     <key>CFBundleShortVersionString</key>
     <string>1.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
     <key>LSMinimumSystemVersion</key>
-    <string>10.15</string>
-    <key>LSUIElement</key>
-    <false/>
+    <string>10.13</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
 </dict>
 </plist>

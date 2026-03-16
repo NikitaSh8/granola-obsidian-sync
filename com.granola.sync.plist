@@ -3,12 +3,12 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.user.granola-sync</string>
+    <string>com.granola.sync</string>
 
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/bin/python3</string>
-        <string>/PATH/TO/granola_sync.py</string>
+        <string>/opt/homebrew/bin/python3</string>
+        <string>/YOUR_HOME/.local/bin/granola-sync/granola_sync.py</string>
     </array>
 
     <key>StartInterval</key>
@@ -18,17 +18,15 @@
     <true/>
 
     <key>StandardOutPath</key>
-    <string>/PATH/TO/Library/Logs/granola-sync.log</string>
+    <string>/YOUR_HOME/.local/bin/granola-sync/granola_sync.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/PATH/TO/Library/Logs/granola-sync-error.log</string>
+    <string>/YOUR_HOME/.local/bin/granola-sync/granola_sync_error.log</string>
 
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
-        <key>PYTHONPATH</key>
-        <string>/PATH/TO/Library/Python/3.9/lib/python/site-packages</string>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
     </dict>
 </dict>
 </plist>

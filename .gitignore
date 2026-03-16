@@ -1,5 +1,6 @@
 granola_sync_config.json
 .granola_sync_state.json
-__pycache__/
+*.log
 *.pyc
+__pycache__/
 .DS_Store
