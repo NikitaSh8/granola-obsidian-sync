@@ -47,7 +47,14 @@ GRANOLA_CREDENTIALS_PATH = os.path.expanduser(CONFIG["granola_credentials_path"]
 GRANOLA_CACHE_PATH = os.path.expanduser(CONFIG["granola_cache_path"])
 OBSIDIAN_VAULT_PATH = os.path.expanduser(CONFIG["obsidian_vault_path"])
 MEETINGS_FOLDER = ""  # Сохраняем в корень указанной папки
-SYNC_STATE_FILE = os.path.join(OBSIDIAN_VAULT_PATH, ".granola_sync_state.json")
+# State-файл хранится рядом со скриптом, а не в Obsidian Vault,
+# чтобы избежать блокировок iCloud
+SYNC_STATE_FILE = str(SCRIPT_DIR / ".granola_sync_state.json")
+# Миграция: если state-файл остался в старом месте, переносим
+_old_state = os.path.join(OBSIDIAN_VAULT_PATH, ".granola_sync_state.json")
+if os.path.exists(_old_state) and not os.path.exists(SYNC_STATE_FILE):
+    import shutil
+    shutil.move(_old_state, SYNC_STATE_FILE)
 
 # API
 GRANOLA_API_URL = "https://api.granola.ai/v2/get-documents"
@@ -405,18 +412,38 @@ def format_date(date_str: str) -> str:
         return datetime.now().strftime("%Y-%m-%d")
 
 
+def _retry_file_op(func, retries=3, delay=1):
+    """Повторяет файловую операцию при блокировке iCloud."""
+    import time
+    for attempt in range(retries):
+        try:
+            return func()
+        except OSError as e:
+            if attempt < retries - 1:
+                time.sleep(delay)
+            else:
+                raise
+
+
 def load_sync_state() -> dict:
     """Загружает состояние синхронизации."""
     if os.path.exists(SYNC_STATE_FILE):
-        with open(SYNC_STATE_FILE, "r") as f:
-            return json.load(f)
+        def _read():
+            with open(SYNC_STATE_FILE, "r") as f:
+                return json.load(f)
+        try:
+            return _retry_file_op(_read)
+        except (OSError, json.JSONDecodeError):
+            return {"synced_ids": {}}
     return {"synced_ids": {}}
 
 
 def save_sync_state(state: dict):
     """Сохраняет состояние синхронизации."""
-    with open(SYNC_STATE_FILE, "w") as f:
-        json.dump(state, f, indent=2)
+    def _write():
+        with open(SYNC_STATE_FILE, "w") as f:
+            json.dump(state, f, indent=2)
+    _retry_file_op(_write)
 
 
 def get_content_hash(content: str) -> str:
@@ -429,22 +456,24 @@ def build_granola_id_index(meetings_path: Path) -> dict:
     index = {}
     for md_file in meetings_path.glob("*.md"):
         try:
-            with open(md_file, "r", encoding="utf-8") as f:
-                in_frontmatter = False
-                for i, line in enumerate(f):
-                    if i == 0 and line.strip() == "---":
-                        in_frontmatter = True
-                        continue
-                    if in_frontmatter and line.strip() == "---":
-                        break  # Конец frontmatter
-                    if in_frontmatter and line.startswith("granola_id:"):
-                        gid = line.split(":", 1)[1].strip()
-                        if gid:
-                            index.setdefault(gid, []).append(md_file)
-                        break
-                    if i > 15:
-                        break  # Слишком далеко, frontmatter не найден
-        except (IOError, UnicodeDecodeError):
+            def _read_id(f=md_file):
+                with open(f, "r", encoding="utf-8") as fh:
+                    in_frontmatter = False
+                    for i, line in enumerate(fh):
+                        if i == 0 and line.strip() == "---":
+                            in_frontmatter = True
+                            continue
+                        if in_frontmatter and line.strip() == "---":
+                            return None
+                        if in_frontmatter and line.startswith("granola_id:"):
+                            return line.split(":", 1)[1].strip()
+                        if i > 15:
+                            return None
+                return None
+            gid = _retry_file_op(_read_id)
+            if gid:
+                index.setdefault(gid, []).append(md_file)
+        except (IOError, UnicodeDecodeError, OSError):
             pass
     return index
 
@@ -603,18 +632,14 @@ tags:
             print(f"Новый: {filename}")
 
         # Записываем файл (с retry при блокировке iCloud/Obsidian)
-        import time
-        for attempt in range(3):
-            try:
-                with open(filepath, "w", encoding="utf-8") as f:
-                    f.write(full_content)
-                break
-            except OSError as e:
-                if attempt < 2:
-                    time.sleep(1)
-                else:
-                    print(f"  ⚠️ Не удалось записать {filename}: {e}")
-                    continue
+        def _write_file():
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(full_content)
+        try:
+            _retry_file_op(_write_file)
+        except OSError as e:
+            print(f"  ⚠️ Не удалось записать {filename}: {e}")
+            continue
 
         # Обновляем состояние
         synced_ids[doc_id] = content_hash
