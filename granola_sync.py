@@ -25,6 +25,7 @@ def load_config() -> dict:
     """Загружает конфигурацию из JSON файла."""
     default_config = {
         "obsidian_vault_path": "~/Documents/Obsidian Vault/Transcripts",
+        "transcripts_subfolder": "06 Transcripts",
         "granola_credentials_path": "~/Library/Application Support/Granola/supabase.json",
         "granola_cache_path": "~/Library/Application Support/Granola/cache-v3.json",
     }
@@ -40,12 +41,69 @@ def load_config() -> dict:
 
     return default_config
 
+
+def find_obsidian_vaults(max_depth: int = 4) -> list:
+    """Ищет папки Obsidian vault (содержащие .obsidian) в типовых местах."""
+    search_roots = [
+        Path.home(),
+        Path.home() / "Documents",
+        Path.home() / "Library" / "Mobile Documents" / "iCloud~md~obsidian" / "Documents",
+    ]
+    vaults = []
+    seen = set()
+    for root in search_roots:
+        if not root.exists():
+            continue
+        try:
+            # glob по ограниченной глубине, чтобы не сканировать весь диск
+            for marker in root.glob("*/.obsidian"):
+                vault = marker.parent.resolve()
+                if vault not in seen:
+                    seen.add(vault)
+                    vaults.append(vault)
+            for marker in root.glob("*/*/.obsidian"):
+                vault = marker.parent.resolve()
+                if vault not in seen:
+                    seen.add(vault)
+                    vaults.append(vault)
+        except (PermissionError, OSError):
+            continue
+    return vaults
+
+
+def resolve_vault_path(config: dict) -> str:
+    """Возвращает путь к папке транскриптов с авто-детектом.
+
+    Приоритет:
+    1. Переменная окружения OBSIDIAN_VAULT_PATH (полный путь до папки транскриптов)
+    2. obsidian_vault_path из конфига, если папка существует
+    3. Авто-поиск: первый найденный vault с подпапкой transcripts_subfolder
+    4. Фолбэк: путь из конфига (даже если не существует — скрипт попытается создать)
+    """
+    env_path = os.environ.get("OBSIDIAN_VAULT_PATH")
+    if env_path:
+        return os.path.expanduser(env_path)
+
+    configured = os.path.expanduser(config["obsidian_vault_path"])
+    if os.path.isdir(configured):
+        return configured
+
+    subfolder = config.get("transcripts_subfolder", "06 Transcripts")
+    for vault in find_obsidian_vaults():
+        candidate = vault / subfolder
+        if candidate.is_dir():
+            print(f"Авто-детект: найден vault {vault}, использую {candidate}")
+            return str(candidate)
+
+    return configured
+
+
 CONFIG = load_config()
 
 # Конфигурация путей (из конфиг-файла)
 GRANOLA_CREDENTIALS_PATH = os.path.expanduser(CONFIG["granola_credentials_path"])
 GRANOLA_CACHE_PATH = os.path.expanduser(CONFIG["granola_cache_path"])
-OBSIDIAN_VAULT_PATH = os.path.expanduser(CONFIG["obsidian_vault_path"])
+OBSIDIAN_VAULT_PATH = resolve_vault_path(CONFIG)
 MEETINGS_FOLDER = ""  # Сохраняем в корень указанной папки
 # State-файл хранится рядом со скриптом, а не в Obsidian Vault,
 # чтобы избежать блокировок iCloud
