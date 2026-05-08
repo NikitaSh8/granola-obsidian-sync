@@ -278,8 +278,6 @@ def cleanup_duplicates(meetings_path: Path, index: dict) -> int:
 # ── Основная функция ─────────────────────────────────────────────────────────
 
 def sync():
-    print("Granola Public API → Obsidian sync...")
-
     if not API_KEY:
         print("ОШИБКА: API ключ не задан. Положи 'granola_api_key' в "
               f"{CONFIG_PATH} или экспортни GRANOLA_API_KEY.")
@@ -291,9 +289,6 @@ def sync():
     state = load_sync_state()
     synced_ids = state.get("synced_ids", {})
 
-    # Чистим дубликаты от iCloud
-    cleanup_duplicates(meetings_path, {})
-
     # Список встреч
     try:
         notes = list_all_notes()
@@ -304,26 +299,33 @@ def sync():
         print(f"Сетевая ошибка: {e}")
         return
 
-    print(f"Найдено заметок в Granola: {len(notes)}")
+    # Быстрая проверка: какие заметки требуют обработки (изменились)?
+    todo = []
+    for note in notes:
+        prev = synced_ids.get(note.get("id"), {})
+        if not isinstance(prev, dict) or prev.get("updated_at") != note.get("updated_at"):
+            todo.append(note)
 
-    # Индекс существующих файлов
+    # Если ничего не поменялось — выходим без чтения файлов и без cleanup
+    if not todo:
+        state["last_sync"] = datetime.now().isoformat()
+        save_sync_state(state)
+        return
+
+    print(f"Granola → Obsidian sync: {len(todo)} из {len(notes)} требуют обработки")
+
+    # Тяжёлые операции — только когда есть реальная работа
+    cleanup_duplicates(meetings_path, {})
     existing = build_existing_index(meetings_path)
 
     new_count = 0
     updated_count = 0
-    skipped_count = 0
 
-    for note in notes:
+    for note in todo:
         note_id = note.get("id")
         title = note.get("title") or "Без названия"
         created_at = note.get("created_at", "")
         updated_at = note.get("updated_at", created_at)
-
-        # Если нет изменений с прошлой синхры — пропускаем
-        prev = synced_ids.get(note_id, {})
-        if isinstance(prev, dict) and prev.get("updated_at") == updated_at:
-            skipped_count += 1
-            continue
 
         # Целевое имя файла
         date_str = format_date(created_at)
@@ -374,8 +376,10 @@ def sync():
         full_content = "\n".join(parts)
 
         ch = content_hash(full_content)
+        prev = synced_ids.get(note_id, {})
         if isinstance(prev, dict) and prev.get("hash") == ch:
-            skipped_count += 1
+            # updated_at поменялся, но содержимое идентичное — обновляем state и пропускаем запись
+            synced_ids[note_id] = {"updated_at": updated_at, "hash": ch}
             continue
 
         is_new = note_id not in synced_ids
@@ -401,7 +405,7 @@ def sync():
     state["last_sync"] = datetime.now().isoformat()
     save_sync_state(state)
 
-    print(f"\nГотово: новых={new_count}, обновлено={updated_count}, пропущено={skipped_count}, всего={len(notes)}")
+    print(f"Готово: новых={new_count}, обновлено={updated_count}, всего в API={len(notes)}")
 
 
 if __name__ == "__main__":

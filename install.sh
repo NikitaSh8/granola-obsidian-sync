@@ -87,7 +87,7 @@ cat > "$PLIST_FILE" << PLISTEOF
     </array>
 
     <key>StartInterval</key>
-    <integer>300</integer>
+    <integer>60</integer>
 
     <key>RunAtLoad</key>
     <true/>
