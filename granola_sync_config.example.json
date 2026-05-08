@@ -1,6 +1,7 @@
 {
-  "obsidian_vault_path": "~/Documents/Obsidian Vault/Transcripts",
+  "obsidian_vault_path": "~/Documents/Obsidian Vault/06 Transcripts",
   "transcripts_subfolder": "06 Transcripts",
-  "granola_credentials_path": "~/Library/Application Support/Granola/supabase.json",
-  "granola_cache_path": "~/Library/Application Support/Granola/cache-v3.json"
+  "granola_api_key": "grn_YOUR_API_KEY_HERE",
+  "granola_api_base": "https://public-api.granola.ai/v1",
+  "page_size": 30
 }

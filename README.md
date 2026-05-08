@@ -1,24 +1,30 @@
 # Granola Sync
 
-Скрипт для автоматической синхронизации транскриптов из [Granola](https://www.granola.so) в [Obsidian](https://obsidian.md).
+Скрипт для автоматической синхронизации транскриптов из [Granola](https://www.granola.so) в [Obsidian](https://obsidian.md) через **официальный Public API** (требуется платный тариф Granola).
 
 ## Что делает
 
-- Получает все встречи из Granola через API
-- Сохраняет summary + полный транскрипт в Markdown-файлы
-- Автоматически обновляет только изменившиеся файлы
+- Получает все встречи workspace через `https://public-api.granola.ai/v1/`
+- Сохраняет summary (markdown) + verbatim транскрипт в .md файлы
+- Только дельта: пропускает заметки без изменений по `updated_at`
 - Удаляет дубликаты от облачной синхронизации (iCloud/Dropbox)
-- Отслеживает переименования встреч в Granola
+- Авто-детект Obsidian vault'а по `.obsidian` маркеру
 
 ## Требования
 
-- macOS
+- macOS (или Linux, без launchd-агента)
 - Python 3.x
-- Установленная и авторизованная [Granola](https://www.granola.so)
+- Платный тариф Granola с API-ключом (`grn_...`)
 - Библиотека `requests`:
   ```bash
   pip3 install --user --break-system-packages requests
   ```
+
+## Где взять API-ключ
+
+В аккаунте Granola: **Settings → API** (или раздел Developer/Integrations). Сгенерируй ключ в нужном workspace — API возвращает только заметки этого workspace.
+
+Документация Granola: <https://docs.granola.ai/introduction>
 
 ## Быстрая установка
 
@@ -28,85 +34,107 @@
 
 ## Ручная установка
 
-### 1. Скопировать скрипт и конфигурацию
+### 1. Скопировать скрипт и конфиг
 
 ```bash
 mkdir -p ~/.local/bin/granola-sync
 cp granola_sync.py ~/.local/bin/granola-sync/
-cp granola_sync_config.json ~/.local/bin/granola-sync/
+cp granola_sync_config.example.json ~/.local/bin/granola-sync/granola_sync_config.json
+chmod 600 ~/.local/bin/granola-sync/granola_sync_config.json
 ```
 
-### 2. Настроить конфигурацию
+### 2. Настроить конфиг
 
-Отредактируйте `~/.local/bin/granola-sync/granola_sync_config.json`:
+Отредактируй `~/.local/bin/granola-sync/granola_sync_config.json`:
 
 ```json
 {
-  "obsidian_vault_path": "~/Documents/Obsidian Vault/YOUR_VAULT/06 Transcripts",
-  "granola_credentials_path": "~/Library/Application Support/Granola/supabase.json",
-  "granola_cache_path": "~/Library/Application Support/Granola/cache-v3.json"
+  "obsidian_vault_path": "~/Obsidian/06 Transcripts",
+  "transcripts_subfolder": "06 Transcripts",
+  "granola_api_key": "grn_YOUR_KEY_HERE",
+  "granola_api_base": "https://public-api.granola.ai/v1",
+  "page_size": 30
 }
 ```
 
-### 3. Настроить автозапуск (каждые 5 минут)
+Альтернатива — переменная окружения `GRANOLA_API_KEY` (имеет приоритет над конфигом).
 
-```bash
-# Отредактируйте пути в plist файле под вашу систему
-cp com.granola.sync.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.granola.sync.plist
-```
+`obsidian_vault_path` может не существовать — скрипт сам поищет vault с папкой `06 Transcripts`. Также можно переопределить через `OBSIDIAN_VAULT_PATH`.
 
-### 4. Создать macOS приложение (опционально)
+### 3. Тестовый запуск
 
-```bash
-mkdir -p ~/Applications/Granola\ Sync.app/Contents/MacOS
-mkdir -p ~/Applications/Granola\ Sync.app/Contents/Resources
-cp Info.plist ~/Applications/Granola\ Sync.app/Contents/
-cp granola-sync.sh ~/Applications/Granola\ Sync.app/Contents/MacOS/granola-sync
-chmod +x ~/Applications/Granola\ Sync.app/Contents/MacOS/granola-sync
-```
-
-## Использование
-
-### Ручной запуск
 ```bash
 python3 ~/.local/bin/granola-sync/granola_sync.py
 ```
 
-### Через приложение
-Двойной клик на `Granola Sync.app` в `~/Applications/`
+Должно появиться `Найдено заметок в Granola: N` и созданные файлы.
 
-### Автоматический запуск
-Настроен через launchd, запускается каждые 5 минут.
+### 4. Автозапуск каждые 5 минут (macOS launchd)
+
+Подправь пути в `com.granola.sync.plist` под себя, потом:
 
 ```bash
-# Проверить статус
-launchctl list | grep granola
-
-# Остановить
-launchctl unload ~/Library/LaunchAgents/com.granola.sync.plist
-
-# Запустить
+cp com.granola.sync.plist ~/Library/LaunchAgents/
 launchctl load ~/Library/LaunchAgents/com.granola.sync.plist
 ```
 
 ## Логи
 
 ```bash
-# Основной лог
 tail -f ~/.local/bin/granola-sync/granola_sync.log
-
-# Лог ошибок
 tail -f ~/.local/bin/granola-sync/granola_sync_error.log
+```
+
+## Управление
+
+```bash
+launchctl list | grep granola      # статус
+launchctl unload ~/Library/LaunchAgents/com.granola.sync.plist   # стоп
+launchctl load ~/Library/LaunchAgents/com.granola.sync.plist     # старт
 ```
 
 ## Формат файлов
 
-Каждый транскрипт сохраняется как `YYYY-MM-DD - Название встречи.md` и содержит:
+Каждая заметка сохраняется как `YYYY-MM-DD - Название.md`:
 
-- **Frontmatter** — granola_id, дата создания, теги
-- **Summary** — саммари от Granola
-- **Transcript** — полный транскрипт с временными метками
+```markdown
+---
+granola_id: not_xxxxxxxxxxxxxx
+created: 2026-05-08T09:23:47.776Z
+updated: 2026-05-08T09:24:13.614Z
+title: "Название встречи"
+web_url: https://notes.granola.ai/d/...
+tags:
+  - meeting
+  - granola
+---
+
+
+## Summary
+
+(markdown summary)
+
+
+---
+
+## Transcript
+
+**🎤 Вы** (09:24:04):
+> текст
+```
+
+## Безопасность
+
+- API-ключ хранится в `granola_sync_config.json` с правами `600` (только владелец)
+- State-файл (`.granola_sync_state.json`) лежит **рядом со скриптом**, не в Obsidian vault — это снимает блокировки iCloud
+- Скрипт не передаёт ключ никуда кроме `public-api.granola.ai`
+
+## История
+
+- **v4** (текущая): переход на официальный Public API. Bearer-токен, без зависимости от Granola.app
+- **v3**: фикс iCloud deadlock'ов, retry на файловые операции
+- **v2**: дедуп дубликатов, инсталлятор, .app
+- **v1**: первый релиз через неофициальные `/v2/get-documents` endpoints (больше не работает)
 
 ## Лицензия
 
